@@ -825,6 +825,93 @@ function parseWorkEvent(message, state) {
   });
 }
 
+function parseWorkReference(message, state) {
+  const timezone = state.profile?.timezone || APP_TIMEZONE;
+  const months = {
+    janvier: 1, fevrier: 2, mars: 3, avril: 4, mai: 5, juin: 6,
+    juillet: 7, aout: 8, septembre: 9, octobre: 10, novembre: 11,
+    decembre: 12
+  };
+  const weekdays = {
+    dimanche: 0,
+    lundi: 1,
+    mardi: 2,
+    mercredi: 3,
+    jeudi: 4,
+    vendredi: 5,
+    samedi: 6
+  };
+  const normalized = message
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase();
+  const todayDate = localDate(new Date(), timezone);
+  const currentYear = Number(todayDate.slice(0, 4));
+  const currentMonth = Number(todayDate.slice(5, 7));
+
+  let date = '';
+  const relativeDate = normalized.includes('demain') ? 'demain' : (normalized.includes('aujourd') ? 'aujourd hui' : '');
+  const weekdayDayMatch = normalized.match(/\b(dimanche|lundi|mardi|mercredi|jeudi|vendredi|samedi)\s+(\d{1,2})(?:\s+(janvier|fevrier|mars|avril|mai|juin|juillet|aout|septembre|octobre|novembre|decembre))?(?:\s+(\d{4}))?\b/i);
+  const dateMatch = normalized.match(/\b(\d{1,2})\s+(janvier|fevrier|mars|avril|mai|juin|juillet|aout|septembre|octobre|novembre|decembre)(?:\s+(\d{4}))?\b/i);
+  const weekdayMatch = normalized.match(/\b(dimanche|lundi|mardi|mercredi|jeudi|vendredi|samedi)\b/i);
+
+  if (relativeDate) {
+    date = relativeDate === 'demain' ? addDays(todayDate, 1) : todayDate;
+  } else if (weekdayDayMatch) {
+    const day = Number(weekdayDayMatch[2]);
+    let month = weekdayDayMatch[3] ? months[weekdayDayMatch[3]] : currentMonth;
+    let year = weekdayDayMatch[4] ? Number(weekdayDayMatch[4]) : currentYear;
+    date = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+    if (!weekdayDayMatch[3] && !weekdayDayMatch[4] && date < addDays(todayDate, -2)) {
+      month += 1;
+      if (month > 12) {
+        month = 1;
+        year += 1;
+      }
+      date = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+    }
+  } else if (dateMatch) {
+    const day = Number(dateMatch[1]);
+    const month = months[dateMatch[2]];
+    let year = dateMatch[3] ? Number(dateMatch[3]) : currentYear;
+    date = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+    if (!dateMatch[3] && date < addDays(todayDate, -2)) {
+      year += 1;
+      date = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+    }
+  } else if (weekdayMatch) {
+    const today = new Date(`${todayDate}T12:00:00`);
+    const delta = (weekdays[weekdayMatch[1]] - today.getDay() + 7) % 7;
+    const next = new Date(today);
+    next.setDate(today.getDate() + delta);
+    date = next.toISOString().slice(0, 10);
+  }
+
+  const timeMatch = normalized.match(/\b(\d{1,2})(?:[:h](\d{2}))?\s*(?:a|-|jusqu'a)\s*(\d{1,2})(?:[:h](\d{2}))?\b/i);
+  let time = null;
+  if (timeMatch) {
+    const event = createWorkEventFromParts({
+      date: date || todayDate,
+      startHour: Number(timeMatch[1]),
+      startMinute: Number(timeMatch[2] || 0),
+      endHour: Number(timeMatch[3]),
+      endMinute: Number(timeMatch[4] || 0),
+      workProfile: { employer: '', location: '', jobCategory: '', project: '' },
+      timezone
+    });
+    time = {
+      start: localTime(new Date(event.startAt), timezone),
+      end: localTime(new Date(event.endAt), timezone)
+    };
+  }
+
+  return {
+    date,
+    time,
+    workProfile: inferWorkProfile(message, state)
+  };
+}
+
 function normalizeText(value) {
   return String(value || '')
     .normalize('NFD')
@@ -851,7 +938,7 @@ function sameLocalTimeRange(event, parsedEvent, timezone) {
     && localTime(new Date(event.endAt), timezone) === localTime(new Date(parsedEvent.endAt), timezone);
 }
 
-function scoreWorkEventTarget(event, message, parsedEvent, timezone) {
+function scoreWorkEventTarget(event, message, parsedEvent, reference, timezone) {
   const normalized = normalizeText(message);
   const eventDate = localDate(new Date(event.startAt), timezone);
   let score = 0;
@@ -864,6 +951,11 @@ function scoreWorkEventTarget(event, message, parsedEvent, timezone) {
     if (parsedEvent.location && event.location !== parsedEvent.location) score += event.location ? 1 : 3;
   }
 
+  if (reference?.date && eventDate === reference.date) score += 8;
+  if (reference?.time && localTime(new Date(event.startAt), timezone) === reference.time.start && localTime(new Date(event.endAt), timezone) === reference.time.end) score += 8;
+  if (reference?.workProfile?.location && event.location === reference.workProfile.location) score += 5;
+  if (reference?.workProfile?.employer && event.employer === reference.workProfile.employer) score += 3;
+
   for (const value of [event.title, event.employer, event.location, event.jobCategory, event.project]) {
     const token = normalizeText(value);
     if (token && normalized.includes(token)) score += 4;
@@ -874,14 +966,15 @@ function scoreWorkEventTarget(event, message, parsedEvent, timezone) {
 
 function findWorkEventTarget(message, state, parsedEvent) {
   const timezone = state.profile?.timezone || APP_TIMEZONE;
+  const reference = parseWorkReference(message, state);
   const candidates = state.events.filter((event) => event.type === 'work');
   if (!candidates.length) return null;
 
   const scored = candidates
-    .map((event) => ({ event, score: scoreWorkEventTarget(event, message, parsedEvent, timezone) }))
+    .map((event) => ({ event, score: scoreWorkEventTarget(event, message, parsedEvent, reference, timezone) }))
     .sort((a, b) => b.score - a.score || String(b.event.startAt).localeCompare(String(a.event.startAt)));
 
-  if (scored[0]?.score >= 8) return scored[0].event;
+  if (scored[0]?.score >= 8 && scored[0].score > (scored[1]?.score || 0)) return scored[0].event;
   return null;
 }
 
@@ -903,6 +996,29 @@ function findTextTarget(items, message) {
     .map((item) => ({ item, score: scoreTextTarget(item, message) }))
     .sort((a, b) => b.score - a.score);
   if (scored[0]?.score >= 2 || (scored[0]?.score > 0 && (scored[1]?.score || 0) === 0)) return scored[0].item;
+  return null;
+}
+
+function findShiftTaskFallbackTarget(message, state) {
+  const normalized = normalizeText(message);
+  const reference = parseWorkReference(message, state);
+  const scored = state.tasks
+    .filter((task) => ['general', 'travail', 'work'].includes(task.category || 'general'))
+    .map((task) => {
+      const taskText = normalizeText(task.title);
+      let score = 0;
+      if (taskText.includes('laurier') && normalized.includes('laurier')) score += 5;
+      if (taskText.includes('chaleur') && normalized.includes('chaleur')) score += 5;
+      if (reference.date) {
+        const day = String(Number(reference.date.slice(8, 10)));
+        if (taskText.includes(day) && taskText.match(/\b(dimanche|lundi|mardi|mercredi|jeudi|vendredi|samedi)\b/)) score += 4;
+      }
+      if (reference.time && taskText.includes(reference.time.start.slice(0, 2).replace(/^0/, '')) && taskText.includes(reference.time.end.slice(0, 2).replace(/^0/, ''))) score += 4;
+      if (scoreTextTarget(task, message) > 0) score += scoreTextTarget(task, message);
+      return { task, score };
+    })
+    .sort((a, b) => b.score - a.score);
+  if (scored[0]?.score >= 4 && scored[0].score > (scored[1]?.score || 0)) return scored[0].task;
   return null;
 }
 
@@ -966,10 +1082,21 @@ function applyChatMutation(message, state) {
     const parsedEvent = parseWorkEvent(message, state);
     const target = findWorkEventTarget(message, state, parsedEvent);
     if (!target) {
+      if (action === 'delete') {
+        const taskFallback = findShiftTaskFallbackTarget(message, state);
+        if (taskFallback) {
+          const label = taskFallback.title;
+          state.tasks = state.tasks.filter((task) => task.id !== taskFallback.id);
+          changes.deleted += 1;
+          changes.tasks += 1;
+          changes.details.push({ action: 'delete', kind: 'task', label: `la tache mal classee "${label}"`, menu: menuForChange('task') });
+          return { handled: true, changes, reply: summarizeChanges(changes) };
+        }
+      }
       return {
         handled: true,
         changes,
-        reply: 'Je n ai pas trouve le shift a modifier ou supprimer. Precise la date et les heures, par exemple: supprime mon shift du vendredi 5 juin de 8 a 8.'
+        reply: 'Je n ai pas trouve le shift a modifier ou supprimer. Precise la date, le lieu ou les heures, par exemple: supprime mon shift du vendredi 5 juin a Laurier de 8 a 8.'
       };
     }
 

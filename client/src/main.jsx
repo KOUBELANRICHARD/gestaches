@@ -202,6 +202,20 @@ function App() {
     }
   }
 
+  async function deleteEvent(id) {
+    const event = state.events.find((item) => item.id === id);
+    if (!window.confirm(`Supprimer cet horaire ?\n${event?.title || ''}`)) return;
+    setBusy(true);
+    try {
+      const data = await api(`/api/events/${id}`, {
+        method: 'DELETE'
+      });
+      setPayload((current) => ({ ...current, ...data }));
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function createItem(path, body, reset) {
     setBusy(true);
     setNotice('');
@@ -434,6 +448,9 @@ function App() {
                   {(event.employer || event.location || event.jobCategory) && (
                     <span>{[event.employer, event.location, event.jobCategory].filter(Boolean).join(' / ')}</span>
                   )}
+                  <div className="task-actions">
+                    <button className="danger-action" onClick={() => deleteEvent(event.id)} disabled={busy}>Supprimer</button>
+                  </div>
                 </article>
               ))}
             </div>
@@ -632,7 +649,12 @@ function App() {
                     <span>{eventStatusLabel(event.status)}</span>
                     <span>{[event.employer, event.location, event.jobCategory].filter(Boolean).join(' / ') || 'Non classe'}</span>
                   </div>
-                  <strong>{formatMinutes(eventDurationMinutes(event))}</strong>
+                  <div>
+                    <strong>{formatMinutes(eventDurationMinutes(event))}</strong>
+                    <div className="task-actions">
+                      <button className="danger-action" onClick={() => deleteEvent(event.id)} disabled={busy}>Supprimer</button>
+                    </div>
+                  </div>
                 </article>
               ))}
             </div>
