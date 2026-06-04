@@ -646,6 +646,117 @@ function inferWorkProfile(message, state) {
   return { employer: '', location: '', jobCategory: '', project: '' };
 }
 
+function createWorkEventFromParts({ date, startHour, startMinute = 0, endHour, endMinute = 0, workProfile, timezone }) {
+  let normalizedStartHour = Number(startHour);
+  let normalizedEndHour = Number(endHour);
+  let endDate = date;
+
+  if (normalizedStartHour < 7 && normalizedEndHour >= 12) {
+    normalizedStartHour += 12;
+  }
+
+  if (normalizedEndHour === 24) {
+    normalizedEndHour = 0;
+    endDate = addDays(date, 1);
+  } else if (normalizedEndHour <= normalizedStartHour) {
+    if (normalizedStartHour >= 12) {
+      endDate = addDays(date, 1);
+    } else {
+      normalizedEndHour += 12;
+    }
+  }
+
+  const startAt = toDateTime(date, `${String(normalizedStartHour).padStart(2, '0')}:${String(startMinute).padStart(2, '0')}`, timezone).toISOString();
+  const endAt = toDateTime(endDate, `${String(normalizedEndHour).padStart(2, '0')}:${String(endMinute).padStart(2, '0')}`, timezone).toISOString();
+  const titleParts = ['Travail', workProfile.employer, workProfile.location].filter(Boolean);
+  return { title: titleParts.join(' - '), type: 'work', startAt, endAt, ...workProfile };
+}
+
+function parseWorkEvents(message, state) {
+  const timezone = state.profile?.timezone || APP_TIMEZONE;
+  const months = {
+    janvier: 1, fevrier: 2, mars: 3, avril: 4, mai: 5, juin: 6,
+    juillet: 7, aout: 8, septembre: 9, octobre: 10, novembre: 11,
+    decembre: 12
+  };
+  const normalized = message
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase();
+  const hasWorkContext = /(travaille|travail|shift|quart|horaire|laurier|chaleur|dany|nepisiguit)/i.test(normalized);
+  if (!hasWorkContext) return [];
+
+  const dateRegex = /\b(dimanche|lundi|mardi|mercredi|jeudi|vendredi|samedi)\s+(\d{1,2})(?:\s+(janvier|fevrier|mars|avril|mai|juin|juillet|aout|septembre|octobre|novembre|decembre))?(?:\s+(\d{4}))?\b/gi;
+  const timeRegex = /\b(\d{1,2})(?:[:h](\d{2}))?\s*(?:a|-|jusqu'a)\s*(\d{1,2})(?:[:h](\d{2}))?\b/gi;
+  const dateMatches = [...normalized.matchAll(dateRegex)];
+  const timeMatches = [...normalized.matchAll(timeRegex)];
+  if (dateMatches.length < 2 || timeMatches.length === 0) return [];
+
+  const today = localDate(new Date(), timezone);
+  const currentYear = Number(today.slice(0, 4));
+  const currentMonth = Number(today.slice(5, 7));
+  const resolveDate = (match) => {
+    const day = Number(match[2]);
+    let month = match[3] ? months[match[3]] : currentMonth;
+    let year = match[4] ? Number(match[4]) : currentYear;
+    let date = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+    if (!match[3] && !match[4] && date < addDays(today, -2)) {
+      month += 1;
+      if (month > 12) {
+        month = 1;
+        year += 1;
+      }
+      date = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+    }
+    return { date, weekday: match[1], index: match.index };
+  };
+
+  const tokens = [
+    ...dateMatches.map((match) => ({ type: 'date', index: match.index, end: match.index + match[0].length, value: resolveDate(match) })),
+    ...timeMatches.map((match) => ({
+      type: 'time',
+      index: match.index,
+      end: match.index + match[0].length,
+      value: {
+        startHour: Number(match[1]),
+        startMinute: Number(match[2] || 0),
+        endHour: Number(match[3]),
+        endMinute: Number(match[4] || 0)
+      }
+    }))
+  ].sort((a, b) => a.index - b.index);
+
+  const events = [];
+  let pendingDates = [];
+
+  for (let index = 0; index < tokens.length; index += 1) {
+    const token = tokens[index];
+    if (token.type === 'date') {
+      pendingDates.push(token.value);
+      continue;
+    }
+
+    if (!pendingDates.length) continue;
+    const nextDate = tokens.slice(index + 1).find((item) => item.type === 'date');
+    const context = normalized.slice(token.end, nextDate?.index || normalized.length);
+    const profile = inferWorkProfile(context, state);
+    const fallbackProfile = inferWorkProfile(message, state);
+    const workProfile = profile.employer || profile.location ? profile : fallbackProfile;
+
+    for (const pending of pendingDates) {
+      events.push(createWorkEventFromParts({
+        date: pending.date,
+        ...token.value,
+        workProfile,
+        timezone
+      }));
+    }
+    pendingDates = [];
+  }
+
+  return events;
+}
+
 function parseWorkEvent(message, state) {
   const timezone = state.profile?.timezone || APP_TIMEZONE;
   const months = {
@@ -668,7 +779,7 @@ function parseWorkEvent(message, state) {
     .replace(/[\u0300-\u036f]/g, '')
     .toLowerCase();
 
-  if (!/(travaille|travail|shift|quart)/i.test(normalized)) return null;
+  if (!/(travaille|travail|shift|quart|horaire|laurier|chaleur|dany|nepisiguit)/i.test(normalized)) return null;
 
   const relativeDate = normalized.includes('demain') ? 'demain' : (normalized.includes('aujourd') ? 'aujourd hui' : '');
   const dateMatch = normalized.match(/(?:lundi|mardi|mercredi|jeudi|vendredi|samedi|dimanche)?\s*(\d{1,2})\s+(janvier|fevrier|mars|avril|mai|juin|juillet|aout|septembre|octobre|novembre|decembre)(?:\s+(\d{4}))?/i);
@@ -702,24 +813,16 @@ function parseWorkEvent(message, state) {
     date = next.toISOString().slice(0, 10);
   }
 
-  const startHour = Number(timeMatch[1]);
-  const startMinute = Number(timeMatch[2] || 0);
-  let endHour = Number(timeMatch[3]);
-  const endMinute = Number(timeMatch[4] || 0);
-  let endDate = date;
-  if (endHour <= startHour) {
-    if (startHour >= 12) {
-      endDate = addDays(date, 1);
-    } else {
-      endHour += 12;
-    }
-  }
-
-  const startAt = toDateTime(date, `${String(startHour).padStart(2, '0')}:${String(startMinute).padStart(2, '0')}`, timezone).toISOString();
-  const endAt = toDateTime(endDate, `${String(endHour).padStart(2, '0')}:${String(endMinute).padStart(2, '0')}`, timezone).toISOString();
   const workProfile = inferWorkProfile(message, state);
-  const titleParts = ['Travail', workProfile.employer, workProfile.location].filter(Boolean);
-  return { title: titleParts.join(' - '), type: 'work', startAt, endAt, ...workProfile };
+  return createWorkEventFromParts({
+    date,
+    startHour: Number(timeMatch[1]),
+    startMinute: Number(timeMatch[2] || 0),
+    endHour: Number(timeMatch[3]),
+    endMinute: Number(timeMatch[4] || 0),
+    workProfile,
+    timezone
+  });
 }
 
 function normalizeText(value) {
@@ -929,6 +1032,18 @@ function applyChatMutation(message, state) {
 
 function fallbackIntent(message, state) {
   const timezone = state.profile?.timezone || APP_TIMEZONE;
+  const workEvents = parseWorkEvents(message, state);
+  if (workEvents.length) {
+    return {
+      reply: '',
+      tasks: [],
+      events: workEvents,
+      goals: [],
+      trainings: [],
+      projects: []
+    };
+  }
+
   const workEvent = parseWorkEvent(message, state);
   if (workEvent) {
     return {
@@ -1271,8 +1386,18 @@ app.post('/api/chat', async (req, res) => {
     changes = mutation.changes;
     reply = mutation.reply;
   } else {
+    const localWorkEvents = parseWorkEvents(message, state);
     const localWorkEvent = parseWorkEvent(message, state);
-    const intent = localWorkEvent
+    const intent = localWorkEvents.length
+      ? {
+          reply: '',
+          tasks: [],
+          events: localWorkEvents,
+          goals: [],
+          trainings: [],
+          projects: []
+        }
+      : localWorkEvent
       ? {
           reply: '',
           tasks: [],
