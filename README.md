@@ -37,6 +37,7 @@ OPENAI_API_KEY=sk-...
 OPENAI_MODEL=gpt-4o-mini
 APP_TIMEZONE=America/Moncton
 PORT=3000
+DATA_DIR=../gestaches-data
 ```
 
 Pour les notifications push:
@@ -67,4 +68,12 @@ Le serveur enverra:
 
 ## Donnees
 
-Les donnees sont dans `data/app-data.json`. Sur Hostinger, le dossier `data` doit rester accessible en ecriture par le processus Node.
+Les donnees sont dans `app-data.json` sous le dossier `DATA_DIR`.
+
+Sur Hostinger, ajouter cette variable d'environnement:
+
+```bash
+DATA_DIR=../gestaches-data
+```
+
+Cette valeur place les donnees hors du dossier source remplace pendant les redeploiements. Avant une mise a jour, aller dans **Avatar > Parametrage > Sauvegarde des donnees** pour telecharger une copie JSON.

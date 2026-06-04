@@ -306,6 +306,26 @@ function App() {
     setNotice('Notifications activees.');
   }
 
+  async function downloadBackup() {
+    setNotice('');
+    try {
+      const response = await fetch('/api/backup', { credentials: 'same-origin' });
+      if (!response.ok) throw new Error('backup');
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `gestaches-backup-${dateInputValue(new Date())}.json`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+      setNotice('Sauvegarde telechargee.');
+    } catch {
+      setNotice("Sauvegarde impossible pour l'instant.");
+    }
+  }
+
   if (!auth.checked) return <div className="loading">Chargement...</div>;
   if (!auth.authenticated) {
     return (
@@ -400,6 +420,7 @@ function App() {
           setPasswordForm={setPasswordForm}
           onClose={() => setProfilePanel(null)}
           onEnableNotifications={enableNotifications}
+          onDownloadBackup={downloadBackup}
           onSaveSettings={saveSettings}
           onChangePassword={changePassword}
         />
@@ -898,6 +919,7 @@ function ProfilePanel({
   setPasswordForm,
   onClose,
   onEnableNotifications,
+  onDownloadBackup,
   onSaveSettings,
   onChangePassword
 }) {
@@ -940,6 +962,14 @@ function ProfilePanel({
               <span>{notice || `Rappel ${state.profile.reminderMinutesBefore} min avant, planning a ${state.profile.dailyPlanTime}.`}</span>
             </div>
             <button onClick={onEnableNotifications}>Activer</button>
+          </div>
+
+          <div className="notification-card">
+            <div>
+              <strong>Sauvegarde des donnees</strong>
+              <span>Telecharger une copie avant une mise a jour.</span>
+            </div>
+            <button onClick={onDownloadBackup}>Telecharger</button>
           </div>
 
           <form className="settings-form" onSubmit={onSaveSettings}>

@@ -10,8 +10,12 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const PORT = Number(process.env.PORT || 3000);
 const APP_TIMEZONE = process.env.APP_TIMEZONE || 'America/Moncton';
-const DATA_DIR = path.join(__dirname, 'data');
+const LEGACY_DATA_DIR = path.join(__dirname, 'data');
+const DATA_DIR = process.env.DATA_DIR
+  ? (path.isAbsolute(process.env.DATA_DIR) ? process.env.DATA_DIR : path.resolve(__dirname, process.env.DATA_DIR))
+  : LEGACY_DATA_DIR;
 const DATA_FILE = path.join(DATA_DIR, 'app-data.json');
+const LEGACY_DATA_FILE = path.join(LEGACY_DATA_DIR, 'app-data.json');
 const DIST_DIR = path.join(__dirname, 'dist');
 
 const app = express();
@@ -360,6 +364,16 @@ async function loadState() {
     const content = await fs.readFile(DATA_FILE, 'utf8');
     return normalizeState(JSON.parse(content));
   } catch {
+    if (DATA_FILE !== LEGACY_DATA_FILE) {
+      try {
+        const legacyContent = await fs.readFile(LEGACY_DATA_FILE, 'utf8');
+        const state = normalizeState(JSON.parse(legacyContent));
+        await saveState(state);
+        return state;
+      } catch {
+        // Continue with a fresh state when neither the persistent nor legacy file exists.
+      }
+    }
     const state = defaultState();
     await saveState(state);
     return state;
@@ -1530,6 +1544,13 @@ app.get('/api/state', async (req, res) => {
     ? req.query.weekStart
     : null;
   res.json(responsePayload(state, { weekStart }));
+});
+
+app.get('/api/backup', async (req, res) => {
+  const state = await loadState();
+  res.setHeader('Content-Type', 'application/json');
+  res.setHeader('Content-Disposition', `attachment; filename="gestaches-backup-${localDate(new Date(), state.profile?.timezone || APP_TIMEZONE)}.json"`);
+  res.send(JSON.stringify(state, null, 2));
 });
 
 app.post('/api/chat', async (req, res) => {
