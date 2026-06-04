@@ -646,6 +646,14 @@ function inferWorkProfile(message, state) {
   return { employer: '', location: '', jobCategory: '', project: '' };
 }
 
+function timeRangeRegex(flags = 'i') {
+  return new RegExp(String.raw`\b(\d{1,2})(?:\s*(?:h|:)\s*(\d{0,2}))?\s*(?:a|-|jusqu'a)\s*(\d{1,2})(?:\s*(?:h|:)\s*(\d{0,2}))?\b`, flags);
+}
+
+function prefixedTimeRangeRegex(flags = 'i') {
+  return new RegExp(String.raw`(?:de|entre)\s*(\d{1,2})(?:\s*(?:h|:)\s*(\d{0,2}))?\s*(?:a|-|jusqu'a)\s*(\d{1,2})(?:\s*(?:h|:)\s*(\d{0,2}))?`, flags);
+}
+
 function createWorkEventFromParts({ date, startHour, startMinute = 0, endHour, endMinute = 0, workProfile, timezone }) {
   let normalizedStartHour = Number(startHour);
   let normalizedEndHour = Number(endHour);
@@ -687,7 +695,7 @@ function parseWorkEvents(message, state) {
   if (!hasWorkContext) return [];
 
   const dateRegex = /\b(dimanche|lundi|mardi|mercredi|jeudi|vendredi|samedi)\s+(\d{1,2})(?:\s+(janvier|fevrier|mars|avril|mai|juin|juillet|aout|septembre|octobre|novembre|decembre))?(?:\s+(\d{4}))?\b/gi;
-  const timeRegex = /\b(\d{1,2})(?:[:h](\d{2}))?\s*(?:a|-|jusqu'a)\s*(\d{1,2})(?:[:h](\d{2}))?\b/gi;
+  const timeRegex = timeRangeRegex('gi');
   const dateMatches = [...normalized.matchAll(dateRegex)];
   const timeMatches = [...normalized.matchAll(timeRegex)];
   if (dateMatches.length < 2 || timeMatches.length === 0) return [];
@@ -700,7 +708,7 @@ function parseWorkEvents(message, state) {
     let month = match[3] ? months[match[3]] : currentMonth;
     let year = match[4] ? Number(match[4]) : currentYear;
     let date = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-    if (!match[3] && !match[4] && date < addDays(today, -2)) {
+    if (!match[3] && !match[4] && date < addDays(today, -45)) {
       month += 1;
       if (month > 12) {
         month = 1;
@@ -784,8 +792,7 @@ function parseWorkEvent(message, state) {
   const relativeDate = normalized.includes('demain') ? 'demain' : (normalized.includes('aujourd') ? 'aujourd hui' : '');
   const dateMatch = normalized.match(/(?:lundi|mardi|mercredi|jeudi|vendredi|samedi|dimanche)?\s*(\d{1,2})\s+(janvier|fevrier|mars|avril|mai|juin|juillet|aout|septembre|octobre|novembre|decembre)(?:\s+(\d{4}))?/i);
   const weekdayMatch = normalized.match(/\b(dimanche|lundi|mardi|mercredi|jeudi|vendredi|samedi)\b/i);
-  const timeMatch = normalized.match(/(?:de|entre)\s*(\d{1,2})(?:[:h](\d{2}))?\s*(?:a|-|jusqu'a)\s*(\d{1,2})(?:[:h](\d{2}))?/i)
-    || normalized.match(/\b(\d{1,2})(?:[:h](\d{2}))?\s*(?:a|-|jusqu'a)\s*(\d{1,2})(?:[:h](\d{2}))?\b/i);
+  const timeMatch = normalized.match(prefixedTimeRangeRegex('i')) || normalized.match(timeRangeRegex('i'));
   if ((!relativeDate && !dateMatch && !weekdayMatch) || !timeMatch) return null;
 
   const currentYear = Number(localDate(new Date(), timezone).slice(0, 4));
@@ -799,7 +806,7 @@ function parseWorkEvent(message, state) {
     if (!month) return null;
     let year = dateMatch[3] ? Number(dateMatch[3]) : currentYear;
     date = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-    if (!dateMatch[3] && date < addDays(localDate(new Date(), timezone), -2)) {
+    if (!dateMatch[3] && date < addDays(localDate(new Date(), timezone), -45)) {
       year += 1;
       date = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
     }
@@ -862,7 +869,7 @@ function parseWorkReference(message, state) {
     let month = weekdayDayMatch[3] ? months[weekdayDayMatch[3]] : currentMonth;
     let year = weekdayDayMatch[4] ? Number(weekdayDayMatch[4]) : currentYear;
     date = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-    if (!weekdayDayMatch[3] && !weekdayDayMatch[4] && date < addDays(todayDate, -2)) {
+    if (!weekdayDayMatch[3] && !weekdayDayMatch[4] && date < addDays(todayDate, -45)) {
       month += 1;
       if (month > 12) {
         month = 1;
@@ -875,7 +882,7 @@ function parseWorkReference(message, state) {
     const month = months[dateMatch[2]];
     let year = dateMatch[3] ? Number(dateMatch[3]) : currentYear;
     date = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-    if (!dateMatch[3] && date < addDays(todayDate, -2)) {
+    if (!dateMatch[3] && date < addDays(todayDate, -45)) {
       year += 1;
       date = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
     }
@@ -887,7 +894,7 @@ function parseWorkReference(message, state) {
     date = next.toISOString().slice(0, 10);
   }
 
-  const timeMatch = normalized.match(/\b(\d{1,2})(?:[:h](\d{2}))?\s*(?:a|-|jusqu'a)\s*(\d{1,2})(?:[:h](\d{2}))?\b/i);
+  const timeMatch = normalized.match(timeRangeRegex('i'));
   let time = null;
   if (timeMatch) {
     const event = createWorkEventFromParts({
@@ -931,6 +938,30 @@ function detectChatAction(message) {
 
 function isWorkCommand(message) {
   return /\b(shift|horaire|quart|travail|travaille)\b/.test(normalizeText(message));
+}
+
+function recentConversationContext(state) {
+  const messages = Array.isArray(state.messages) ? state.messages : [];
+  const previousMessages = messages.slice(0, -1);
+  const lastAssistant = [...previousMessages].reverse().find((message) => message.role === 'assistant')?.content || '';
+  const lastUser = [...previousMessages].reverse().find((message) => message.role === 'user')?.content || '';
+  return { lastAssistant, lastUser };
+}
+
+function contextualMutationMessage(message, state) {
+  const currentAction = detectChatAction(message);
+  if (currentAction) return message;
+
+  const { lastAssistant, lastUser } = recentConversationContext(state);
+  const assistantAskedForShiftInfo = /shift.*pas assez d information|donne la nouvelle date|les heures ou le lieu/i.test(normalizeText(lastAssistant));
+  const lastUserWasShiftMutation = detectChatAction(lastUser) && isWorkCommand(lastUser);
+  const currentHasUsefulShiftInfo = Boolean(parseWorkReference(message, state).date || parseWorkReference(message, state).time || inferWorkProfile(message, state).location);
+
+  if (assistantAskedForShiftInfo && lastUserWasShiftMutation && currentHasUsefulShiftInfo) {
+    return `${lastUser}. Precision: ${message}`;
+  }
+
+  return message;
 }
 
 function sameLocalTimeRange(event, parsedEvent, timezone) {
@@ -1072,18 +1103,19 @@ function summarizeChanges(changes, fallback = '') {
 }
 
 function applyChatMutation(message, state) {
-  const action = detectChatAction(message);
+  const effectiveMessage = contextualMutationMessage(message, state);
+  const action = detectChatAction(effectiveMessage);
   if (!action) return null;
 
   const timezone = state.profile?.timezone || APP_TIMEZONE;
   const changes = { tasks: 0, events: 0, goals: 0, trainings: 0, updated: 0, deleted: 0, details: [] };
 
-  if (isWorkCommand(message)) {
-    const parsedEvent = parseWorkEvent(message, state);
-    const target = findWorkEventTarget(message, state, parsedEvent);
+  if (isWorkCommand(effectiveMessage)) {
+    const parsedEvent = parseWorkEvent(effectiveMessage, state);
+    const target = findWorkEventTarget(effectiveMessage, state, parsedEvent);
     if (!target) {
       if (action === 'delete') {
-        const taskFallback = findShiftTaskFallbackTarget(message, state);
+        const taskFallback = findShiftTaskFallbackTarget(effectiveMessage, state);
         if (taskFallback) {
           const label = taskFallback.title;
           state.tasks = state.tasks.filter((task) => task.id !== taskFallback.id);
@@ -1130,8 +1162,8 @@ function applyChatMutation(message, state) {
     return { handled: true, changes, reply: summarizeChanges(changes) };
   }
 
-  if (/\b(tache|task)\b/.test(normalizeText(message))) {
-    const target = findTextTarget(state.tasks, message);
+  if (/\b(tache|task)\b/.test(normalizeText(effectiveMessage))) {
+    const target = findTextTarget(state.tasks, effectiveMessage);
     if (!target) {
       return { handled: true, changes, reply: 'Je n ai pas trouve la tache visee. Donne quelques mots exacts du titre de la tache.' };
     }
@@ -1145,7 +1177,7 @@ function applyChatMutation(message, state) {
       return { handled: true, changes, reply: summarizeChanges(changes) };
     }
 
-    const updates = parseTaskUpdate(message, target);
+    const updates = parseTaskUpdate(effectiveMessage, target);
     if (updates.title) target.title = updates.title;
     if (updates.durationMinutes) target.durationMinutes = Math.max(15, Number(updates.durationMinutes) || target.durationMinutes);
     changes.updated += 1;
@@ -1219,6 +1251,7 @@ async function openAiIntent(message, state) {
           workProfiles: state.workProfiles,
           goals: state.goals,
           trainings: state.trainings,
+          recentMessages: (state.messages || []).slice(-8).map((item) => ({ role: item.role, content: item.content })),
           message
         })
       }
