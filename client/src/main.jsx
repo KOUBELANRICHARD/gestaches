@@ -40,8 +40,10 @@ function App() {
   const [selectedWeekStart, setSelectedWeekStart] = useState(weekStartDate(dateInputValue(new Date())));
   const [selectedDate, setSelectedDate] = useState('');
   const [editingTaskId, setEditingTaskId] = useState(null);
+  const [editingEventId, setEditingEventId] = useState(null);
   const [workFilters, setWorkFilters] = useState({ employer: '', category: '', location: '' });
   const [editTaskForm, setEditTaskForm] = useState({ title: '', category: 'general', durationMinutes: 45, priority: 'medium', dueDate: '' });
+  const [editEventForm, setEditEventForm] = useState({ title: '', type: 'work', startAt: '', endAt: '', employer: '', location: '', jobCategory: '', project: '' });
   const [taskForm, setTaskForm] = useState({ title: '', category: 'formation', durationMinutes: 45, priority: 'medium', dueDate: '' });
   const [eventForm, setEventForm] = useState({ title: 'Travail', type: 'work', startAt: '', endAt: '', employer: '', location: '', jobCategory: '', project: '' });
   const [goalForm, setGoalForm] = useState({ title: '', horizon: 'court terme', category: 'aws' });
@@ -161,6 +163,19 @@ function App() {
     }
   }
 
+  async function eventAction(id, action) {
+    setBusy(true);
+    try {
+      const data = await api(`/api/events/${id}/${action}`, {
+        method: 'POST',
+        body: '{}'
+      });
+      setPayload((current) => ({ ...current, ...data }));
+    } finally {
+      setBusy(false);
+    }
+  }
+
   function openTaskEditor(task) {
     setEditingTaskId(task.id);
     setEditTaskForm({
@@ -202,6 +217,35 @@ function App() {
     }
   }
 
+  function openEventEditor(event) {
+    setEditingEventId(event.id);
+    setEditEventForm({
+      title: event.title,
+      type: event.type || 'work',
+      startAt: dateTimeLocalValue(event.startAt, state.profile.timezone),
+      endAt: dateTimeLocalValue(event.endAt, state.profile.timezone),
+      employer: event.employer || '',
+      location: event.location || '',
+      jobCategory: event.jobCategory || '',
+      project: event.project || ''
+    });
+  }
+
+  async function saveEventEdit(event, id) {
+    event.preventDefault();
+    setBusy(true);
+    try {
+      const data = await api(`/api/events/${id}`, {
+        method: 'PUT',
+        body: JSON.stringify(editEventForm)
+      });
+      setPayload((current) => ({ ...current, ...data }));
+      setEditingEventId(null);
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function deleteEvent(id) {
     const event = state.events.find((item) => item.id === id);
     if (!window.confirm(`Supprimer cet horaire ?\n${event?.title || ''}`)) return;
@@ -211,6 +255,7 @@ function App() {
         method: 'DELETE'
       });
       setPayload((current) => ({ ...current, ...data }));
+      if (editingEventId === id) setEditingEventId(null);
     } finally {
       setBusy(false);
     }
@@ -377,6 +422,152 @@ function App() {
     hour: '2-digit',
     minute: '2-digit'
   }).format(clock);
+  const tasksById = new Map(state.tasks.map((task) => [task.id, task]));
+  const eventsById = new Map(state.events.map((event) => [event.id, event]));
+  const jobAndTrainingBlocks = selectedDay.blocks.filter((block) => block.kind === 'event' && ['work', 'training'].includes(block.type));
+  const taskBlocks = selectedDay.blocks.filter((block) => block.kind === 'task');
+  const otherBlocks = selectedDay.blocks.filter((block) => block.kind === 'event' && !['work', 'training'].includes(block.type));
+
+  function renderTaskEditor(task) {
+    return (
+      <form className="entry-form inline-editor" onSubmit={(event) => saveTaskEdit(event, task.id)}>
+        <input value={editTaskForm.title} onChange={(event) => setEditTaskForm({ ...editTaskForm, title: event.target.value })} required />
+        <div className="form-grid">
+          <select value={editTaskForm.category} onChange={(event) => setEditTaskForm({ ...editTaskForm, category: event.target.value })}>
+            <option value="formation">Formation</option>
+            <option value="anglais">Anglais</option>
+            <option value="freelance">Freelance</option>
+            <option value="sante">Sante</option>
+            <option value="travail">Travail</option>
+            <option value="general">General</option>
+          </select>
+          <select value={editTaskForm.priority} onChange={(event) => setEditTaskForm({ ...editTaskForm, priority: event.target.value })}>
+            <option value="high">Priorite haute</option>
+            <option value="medium">Priorite moyenne</option>
+            <option value="low">Priorite basse</option>
+          </select>
+        </div>
+        <div className="form-grid">
+          <input type="number" min="15" step="15" value={editTaskForm.durationMinutes} onChange={(event) => setEditTaskForm({ ...editTaskForm, durationMinutes: event.target.value })} />
+          <input type="date" value={editTaskForm.dueDate} onChange={(event) => setEditTaskForm({ ...editTaskForm, dueDate: event.target.value })} />
+        </div>
+        <div className="form-actions">
+          <button type="submit" disabled={busy}>Sauver</button>
+          <button type="button" className="secondary-action" onClick={() => setEditingTaskId(null)}>Annuler</button>
+        </div>
+      </form>
+    );
+  }
+
+  function renderEventEditor(eventItem) {
+    return (
+      <form className="entry-form inline-editor" onSubmit={(event) => saveEventEdit(event, eventItem.id)}>
+        <input value={editEventForm.title} onChange={(event) => setEditEventForm({ ...editEventForm, title: event.target.value })} required />
+        <select value={editEventForm.type} onChange={(event) => setEditEventForm({ ...editEventForm, type: event.target.value })}>
+          <option value="work">Travail</option>
+          <option value="training">Formation</option>
+          <option value="personal">Personnel</option>
+        </select>
+        <div className="form-grid">
+          <input value={editEventForm.employer} onChange={(event) => setEditEventForm({ ...editEventForm, employer: event.target.value })} placeholder="Employeur" />
+          <input value={editEventForm.location} onChange={(event) => setEditEventForm({ ...editEventForm, location: event.target.value })} placeholder="Lieu" />
+        </div>
+        <div className="form-grid">
+          <input value={editEventForm.jobCategory} onChange={(event) => setEditEventForm({ ...editEventForm, jobCategory: event.target.value })} placeholder="Categorie job" />
+          <input value={editEventForm.project} onChange={(event) => setEditEventForm({ ...editEventForm, project: event.target.value })} placeholder="Projet" />
+        </div>
+        <div className="form-grid">
+          <label>
+            <span>Debut</span>
+            <input type="datetime-local" value={editEventForm.startAt} onChange={(event) => setEditEventForm({ ...editEventForm, startAt: event.target.value })} required />
+          </label>
+          <label>
+            <span>Fin</span>
+            <input type="datetime-local" value={editEventForm.endAt} onChange={(event) => setEditEventForm({ ...editEventForm, endAt: event.target.value })} required />
+          </label>
+        </div>
+        <div className="form-actions">
+          <button type="submit" disabled={busy}>Sauver</button>
+          <button type="button" className="secondary-action" onClick={() => setEditingEventId(null)}>Annuler</button>
+        </div>
+      </form>
+    );
+  }
+
+  function renderPlanTask(block) {
+    const task = tasksById.get(block.taskId);
+    if (!task) return null;
+    return (
+      <article className={`task-row plan-row ${task.status === 'doing' ? 'running' : ''}`} key={block.id}>
+        <button
+          className="check-button"
+          onClick={() => taskAction(task.id, 'finish')}
+          aria-label="Marquer la tache effectuee"
+          disabled={busy}
+        >
+          {task.status === 'done' ? 'OK' : ''}
+        </button>
+        <div>
+          <time>{block.start} - {block.end}</time>
+          <strong>{task.title}</strong>
+          <small>{task.category} / {formatMinutes(task.durationMinutes)} / {task.priority}</small>
+          {task.activeStartedAt && <small className="running-text">En cours depuis {formatTime(task.activeStartedAt, state.profile.timezone)}</small>}
+          <div className="task-actions">
+            {task.status !== 'doing' && task.status !== 'done' && (
+              <button onClick={() => taskAction(task.id, 'start')} disabled={busy}>Demarrer</button>
+            )}
+            {task.status === 'doing' && (
+              <button onClick={() => taskAction(task.id, 'stop')} disabled={busy}>Arreter</button>
+            )}
+            {task.status !== 'done' && (
+              <button className="done-action" onClick={() => taskAction(task.id, 'finish')} disabled={busy}>Terminer</button>
+            )}
+            <button onClick={() => openTaskEditor(task)} disabled={busy}>Modifier</button>
+            <button className="danger-action" onClick={() => deleteTask(task.id)} disabled={busy}>Supprimer</button>
+          </div>
+          {editingTaskId === task.id && renderTaskEditor(task)}
+        </div>
+      </article>
+    );
+  }
+
+  function renderPlanEvent(block) {
+    const eventItem = eventsById.get(block.id);
+    if (!eventItem) return null;
+    return (
+      <article className={`task-row plan-row event-plan-row ${eventItem.status === 'doing' ? 'running' : ''} ${eventItem.status === 'done' ? 'done' : ''}`} key={block.id}>
+        <button
+          className="check-button"
+          onClick={() => eventAction(eventItem.id, 'finish')}
+          aria-label="Marquer l'horaire effectue"
+          disabled={busy}
+        >
+          {eventItem.status === 'done' ? 'OK' : ''}
+        </button>
+        <div>
+          <time>{block.start} - {block.end}</time>
+          <strong>{eventItem.title}</strong>
+          <small>
+            {[block.type === 'training' ? 'formation' : 'job', formatMinutes(eventDurationMinutes(eventItem)), eventStatusLabel(eventItem.status)].join(' / ')}
+          </small>
+          {(eventItem.employer || eventItem.location || eventItem.jobCategory || eventItem.project) && (
+            <small>{[eventItem.employer, eventItem.location, eventItem.jobCategory, eventItem.project].filter(Boolean).join(' / ')}</small>
+          )}
+          <div className="task-actions">
+            {eventItem.status !== 'doing' && eventItem.status !== 'done' && (
+              <button onClick={() => eventAction(eventItem.id, 'start')} disabled={busy}>Demarrer</button>
+            )}
+            {eventItem.status !== 'done' && (
+              <button className="done-action" onClick={() => eventAction(eventItem.id, 'finish')} disabled={busy}>Terminer</button>
+            )}
+            <button onClick={() => openEventEditor(eventItem)} disabled={busy}>Modifier</button>
+            <button className="danger-action" onClick={() => deleteEvent(eventItem.id)} disabled={busy}>Supprimer</button>
+          </div>
+          {editingEventId === eventItem.id && renderEventEditor(eventItem)}
+        </div>
+      </article>
+    );
+  }
 
   return (
     <main className="app-shell">
@@ -451,10 +642,49 @@ function App() {
 
       {view === 'journee' && (
         <section className="content-grid">
-          <Panel title={`Plan - ${selectedDay.label}`}>
-            <div className="timeline">
-              {selectedDay.blocks.length === 0 && <p className="muted">Aucun bloc planifie.</p>}
-              {selectedDay.blocks.map((block) => <Block key={block.id} block={block} />)}
+          <Panel title={`Planning - ${selectedDay.label}`}>
+            <div className="planner-stack">
+              <section className="planner-section">
+                <div className="planner-section-head">
+                  <div>
+                    <h3>Jobs et formations</h3>
+                    <span>{formatMinutes(jobAndTrainingBlocks.reduce((total, block) => total + eventDurationMinutes(block), 0))}</span>
+                  </div>
+                  <button type="button" onClick={() => setView('ajouter')}>Ajouter</button>
+                </div>
+                <div className="timeline">
+                  {jobAndTrainingBlocks.length === 0 && <p className="muted">Aucun job ou formation planifie ce jour.</p>}
+                  {jobAndTrainingBlocks.map((block) => renderPlanEvent(block))}
+                </div>
+              </section>
+
+              <section className="planner-section">
+                <div className="planner-section-head">
+                  <div>
+                    <h3>Taches</h3>
+                    <span>{formatMinutes(taskBlocks.reduce((total, block) => total + eventDurationMinutes(block), 0))}</span>
+                  </div>
+                  <button type="button" onClick={() => setView('ajouter')}>Ajouter</button>
+                </div>
+                <div className="timeline">
+                  {taskBlocks.length === 0 && <p className="muted">Aucune tache planifiee ce jour.</p>}
+                  {taskBlocks.map((block) => renderPlanTask(block))}
+                </div>
+              </section>
+
+              {otherBlocks.length > 0 && (
+                <section className="planner-section">
+                  <div className="planner-section-head">
+                    <div>
+                      <h3>Autres</h3>
+                      <span>{formatMinutes(otherBlocks.reduce((total, block) => total + eventDurationMinutes(block), 0))}</span>
+                    </div>
+                  </div>
+                  <div className="timeline">
+                    {otherBlocks.map((block) => renderPlanEvent(block))}
+                  </div>
+                </section>
+              )}
             </div>
           </Panel>
 
@@ -470,8 +700,16 @@ function App() {
                     <span>{[event.employer, event.location, event.jobCategory].filter(Boolean).join(' / ')}</span>
                   )}
                   <div className="task-actions">
+                    {event.status !== 'doing' && event.status !== 'done' && (
+                      <button onClick={() => eventAction(event.id, 'start')} disabled={busy}>Demarrer</button>
+                    )}
+                    {event.status !== 'done' && (
+                      <button className="done-action" onClick={() => eventAction(event.id, 'finish')} disabled={busy}>Terminer</button>
+                    )}
+                    <button onClick={() => openEventEditor(event)} disabled={busy}>Modifier</button>
                     <button className="danger-action" onClick={() => deleteEvent(event.id)} disabled={busy}>Supprimer</button>
                   </div>
+                  {editingEventId === event.id && renderEventEditor(event)}
                 </article>
               ))}
             </div>
@@ -673,9 +911,17 @@ function App() {
                   <div>
                     <strong>{formatMinutes(eventDurationMinutes(event))}</strong>
                     <div className="task-actions">
+                      {event.status !== 'doing' && event.status !== 'done' && (
+                        <button onClick={() => eventAction(event.id, 'start')} disabled={busy}>Demarrer</button>
+                      )}
+                      {event.status !== 'done' && (
+                        <button className="done-action" onClick={() => eventAction(event.id, 'finish')} disabled={busy}>Terminer</button>
+                      )}
+                      <button onClick={() => openEventEditor(event)} disabled={busy}>Modifier</button>
                       <button className="danger-action" onClick={() => deleteEvent(event.id)} disabled={busy}>Supprimer</button>
                     </div>
                   </div>
+                  {editingEventId === event.id && renderEventEditor(event)}
                 </article>
               ))}
             </div>
@@ -1095,6 +1341,24 @@ function dateInTimezone(date, timezone) {
     month: '2-digit',
     day: '2-digit'
   }).format(date);
+}
+
+function dateTimeLocalValue(iso, timezone) {
+  if (!iso) return '';
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: timezone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false
+  }).formatToParts(new Date(iso)).reduce((acc, part) => {
+    if (part.type !== 'literal') acc[part.type] = part.value;
+    return acc;
+  }, {});
+  const hour = parts.hour === '24' ? '00' : parts.hour;
+  return `${parts.year}-${parts.month}-${parts.day}T${hour}:${parts.minute}`;
 }
 
 function addDaysClient(dateString, amount) {

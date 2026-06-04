@@ -225,6 +225,7 @@ button {
 
 h1,
 h2,
+h3,
 p {
   margin: 0;
 }
@@ -347,6 +348,59 @@ h2 {
   gap: 10px;
 }
 
+.planner-stack,
+.planner-section {
+  display: grid;
+  gap: 14px;
+}
+
+.planner-section {
+  border-top: 1px solid var(--line);
+  padding-top: 14px;
+}
+
+.planner-section:first-child {
+  border-top: 0;
+  padding-top: 0;
+}
+
+.planner-section-head {
+  align-items: center;
+  display: flex;
+  gap: 10px;
+  justify-content: space-between;
+}
+
+.planner-section-head div {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.planner-section-head h3 {
+  font-size: 16px;
+  line-height: 1.2;
+  overflow-wrap: anywhere;
+}
+
+.planner-section-head span {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 850;
+}
+
+.planner-section-head button {
+  background: #eef2ec;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--ink);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 850;
+  min-height: 36px;
+  padding: 0 12px;
+}
+
 .time-block {
   background: var(--blue-soft);
   border-left: 4px solid var(--blue);
@@ -419,6 +473,33 @@ h2 {
 .task-row.running {
   border-color: #b9d4c2;
   background: var(--green-soft);
+}
+
+.plan-row {
+  background: var(--blue-soft);
+  border-left: 4px solid var(--blue);
+}
+
+.event-plan-row {
+  background: var(--gold-soft);
+  border-left-color: var(--gold);
+}
+
+.plan-row.done {
+  background: #f8faf7;
+  opacity: 0.78;
+}
+
+.plan-row time {
+  color: var(--blue);
+  display: block;
+  font-size: 12px;
+  font-weight: 900;
+  margin-bottom: 4px;
+}
+
+.event-plan-row time {
+  color: var(--gold);
 }
 
 .check-button {

@@ -1365,6 +1365,13 @@ function blockDurationMinutes(block) {
   return Math.max(0, Math.round((new Date(block.endAt).getTime() - new Date(block.startAt).getTime()) / 60000));
 }
 
+function blockKindLabel(block) {
+  if (block.kind === 'task') return 'Tache';
+  if (block.type === 'work') return 'Job';
+  if (block.type === 'training') return 'Formation';
+  return 'Planning';
+}
+
 function actionPayloadForBlock(block, kind = 'reminder') {
   const isTask = block.kind === 'task' && block.taskId;
   const isEvent = block.kind === 'event';
@@ -1401,7 +1408,7 @@ async function runNotificationTick() {
   if (currentTime === state.profile.dailyPlanTime && !state.notificationLog[dailyKey]) {
     const todayBlocks = buildSchedule(state, 1, today)[0].blocks;
     const body = todayBlocks.length
-      ? todayBlocks.slice(0, 5).map((block) => `${block.start} ${block.title}`).join(' | ')
+      ? todayBlocks.slice(0, 5).map((block) => `${block.start} ${blockKindLabel(block)}: ${block.title}`).join(' | ')
       : 'Aucun bloc planifie aujourd hui.';
     await notifyAll(state, { title: 'Planning du jour', body, url: '/' });
     state.notificationLog[dailyKey] = nowIso();
@@ -1414,7 +1421,7 @@ async function runNotificationTick() {
     const beforeStartKey = `before-start-${block.id}-${block.startAt}`;
     if (startDelta <= state.profile.reminderMinutesBefore && startDelta >= state.profile.reminderMinutesBefore - 2 && !state.notificationLog[beforeStartKey]) {
       await notifyAll(state, {
-        title: `Dans ${state.profile.reminderMinutesBefore} min`,
+        title: `${blockKindLabel(block)} dans ${state.profile.reminderMinutesBefore} min`,
         body: `${block.start} - ${block.title} (${blockDurationMinutes(block)} min)`,
         ...actionPayloadForBlock(block, 'before-start')
       });
@@ -1424,7 +1431,7 @@ async function runNotificationTick() {
     const startKey = `validate-start-${block.id}-${block.startAt}`;
     if (startDelta <= 1 && startDelta >= -4 && !state.notificationLog[startKey]) {
       await notifyAll(state, {
-        title: 'Validation',
+        title: `Validation ${blockKindLabel(block).toLowerCase()}`,
         body: `Est-ce que tu commences maintenant: ${block.title} ?`,
         ...actionPayloadForBlock(block, 'start')
       });
@@ -1435,7 +1442,7 @@ async function runNotificationTick() {
     const beforeEndKey = `before-end-${block.id}-${block.endAt}`;
     if (endDelta <= state.profile.reminderMinutesBefore && endDelta >= state.profile.reminderMinutesBefore - 2 && !state.notificationLog[beforeEndKey]) {
       await notifyAll(state, {
-        title: `Fin dans ${state.profile.reminderMinutesBefore} min`,
+        title: `${blockKindLabel(block)} finit dans ${state.profile.reminderMinutesBefore} min`,
         body: `${block.end} - ${block.title}`,
         ...actionPayloadForBlock(block, 'before-end')
       });
@@ -1446,7 +1453,7 @@ async function runNotificationTick() {
     const activeCheckKey = `active-check-${block.id}-${activeCheckSlot}`;
     if (startDelta < -4 && endDelta > 1 && !state.notificationLog[activeCheckKey]) {
       await notifyAll(state, {
-        title: 'Toujours en cours ?',
+        title: `${blockKindLabel(block)} toujours en cours ?`,
         body: block.status === 'doing'
           ? `Tu es toujours sur: ${block.title} ?`
           : `Est-ce que tu as commence: ${block.title} ?`,
@@ -1458,7 +1465,7 @@ async function runNotificationTick() {
     const endKey = `validate-end-${block.id}-${block.endAt}`;
     if (endDelta <= 1 && endDelta >= -4 && !state.notificationLog[endKey]) {
       await notifyAll(state, {
-        title: 'Validation',
+        title: `Validation ${blockKindLabel(block).toLowerCase()}`,
         body: `Est-ce que tu as termine: ${block.title} ?`,
         ...actionPayloadForBlock(block, 'end')
       });
@@ -1469,7 +1476,7 @@ async function runNotificationTick() {
     const overdueCheckKey = `overdue-check-${block.id}-${overdueCheckSlot}`;
     if (endDelta < -4 && !state.notificationLog[overdueCheckKey]) {
       await notifyAll(state, {
-        title: 'Validation requise',
+        title: `Validation ${blockKindLabel(block).toLowerCase()}`,
         body: `As-tu termine: ${block.title} ?`,
         ...actionPayloadForBlock(block, 'overdue-check')
       });
