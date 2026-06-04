@@ -8,10 +8,7 @@
     "node": "20.x"
   },
   "scripts": {
-    "dev": "concurrently \"npm:dev:server\" \"npm:dev:client\"",
-    "dev:server": "node --watch server.js",
-    "dev:client": "vite --host 0.0.0.0",
-    "build": "vite build",
+    "build": "npm install --prefix client && npm run build --prefix client",
     "start": "node server.js",
     "check": "node --check server.js",
     "vapid": "node scripts/generate-vapid.mjs"
@@ -19,12 +16,6 @@
   "dependencies": {
     "dotenv": "^16.4.7",
     "express": "^4.19.2",
-    "react": "18.3.1",
-    "react-dom": "18.3.1",
-    "vite": "^6.4.3",
     "web-push": "^3.6.7"
-  },
-  "devDependencies": {
-    "concurrently": "^9.1.2"
   }
 }
