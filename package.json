@@ -2,11 +2,10 @@
   "name": "gestaches",
   "version": "1.0.0",
   "description": "Application React et Express pour organiser les taches, horaires, formations et notifications.",
-  "private": true,
   "type": "module",
   "main": "app.js",
   "engines": {
-    "node": ">=18.17.0"
+    "node": "20.x"
   },
   "scripts": {
     "dev": "concurrently \"npm:dev:server\" \"npm:dev:client\"",
@@ -22,10 +21,10 @@
     "express": "^4.19.2",
     "react": "18.3.1",
     "react-dom": "18.3.1",
+    "vite": "^6.4.3",
     "web-push": "^3.6.7"
   },
   "devDependencies": {
-    "concurrently": "^9.1.2",
-    "vite": "5.4.21"
+    "concurrently": "^9.1.2"
   }
 }
