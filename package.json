@@ -1,14 +1,19 @@
 {
   "name": "gestaches",
   "version": "1.0.0",
+  "description": "Application React et Express pour organiser les taches, horaires, formations et notifications.",
   "private": true,
   "type": "module",
+  "main": "app.js",
+  "engines": {
+    "node": ">=18.17.0"
+  },
   "scripts": {
     "dev": "concurrently \"npm:dev:server\" \"npm:dev:client\"",
     "dev:server": "node --watch server.js",
     "dev:client": "vite --host 0.0.0.0",
     "build": "vite build",
-    "start": "node server.js",
+    "start": "node app.js",
     "check": "node --check server.js",
     "vapid": "node scripts/generate-vapid.mjs"
   },
