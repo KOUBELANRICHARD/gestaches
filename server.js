@@ -1521,8 +1521,8 @@ app.get('*', (req, res) => {
   res.sendFile(path.join(DIST_DIR, 'index.html'));
 });
 
-app.listen(PORT, () => {
-  console.log(`Gestaches running on http://localhost:${PORT}`);
+app.listen(PORT, '0.0.0.0', () => {
+  console.log(`Gestaches running on port ${PORT}`);
 });
 
 setInterval(() => {
