@@ -462,6 +462,7 @@ function buildSchedule(state, days = 7, startDate = null) {
           title: task.title,
           type: task.category,
           priority: task.priority,
+          status: task.status || 'todo',
           startAt: cursor.toISOString(),
           endAt: end.toISOString(),
           start: localTime(cursor, timezone),
@@ -1071,6 +1072,10 @@ function minutesUntil(iso) {
   return Math.round((new Date(iso).getTime() - Date.now()) / 60000);
 }
 
+function blockDurationMinutes(block) {
+  return Math.max(0, Math.round((new Date(block.endAt).getTime() - new Date(block.startAt).getTime()) / 60000));
+}
+
 function actionPayloadForBlock(block, kind = 'reminder') {
   const isTask = block.kind === 'task' && block.taskId;
   const isEvent = block.kind === 'event';
@@ -1105,7 +1110,7 @@ async function runNotificationTick() {
   const currentTime = localTime(new Date(), timezone);
   const dailyKey = `daily-${today}`;
   if (currentTime === state.profile.dailyPlanTime && !state.notificationLog[dailyKey]) {
-    const todayBlocks = buildSchedule(state, 1)[0].blocks;
+    const todayBlocks = buildSchedule(state, 1, today)[0].blocks;
     const body = todayBlocks.length
       ? todayBlocks.slice(0, 5).map((block) => `${block.start} ${block.title}`).join(' | ')
       : 'Aucun bloc planifie aujourd hui.';
@@ -1113,18 +1118,18 @@ async function runNotificationTick() {
     state.notificationLog[dailyKey] = nowIso();
   }
 
-  const upcomingBlocks = buildSchedule(state, 7).flatMap((day) => day.blocks);
+  const upcomingBlocks = buildSchedule(state, 7, today).flatMap((day) => day.blocks);
   for (const block of upcomingBlocks) {
     if (block.status === 'done') continue;
     const startDelta = minutesUntil(block.startAt);
-    const key = `reminder-${block.id}-${block.startAt}`;
-    if (startDelta <= state.profile.reminderMinutesBefore && startDelta >= state.profile.reminderMinutesBefore - 2 && !state.notificationLog[key]) {
+    const beforeStartKey = `before-start-${block.id}-${block.startAt}`;
+    if (startDelta <= state.profile.reminderMinutesBefore && startDelta >= state.profile.reminderMinutesBefore - 2 && !state.notificationLog[beforeStartKey]) {
       await notifyAll(state, {
         title: `Dans ${state.profile.reminderMinutesBefore} min`,
-        body: `${block.start} - ${block.title}`,
-        ...actionPayloadForBlock(block, 'reminder')
+        body: `${block.start} - ${block.title} (${blockDurationMinutes(block)} min)`,
+        ...actionPayloadForBlock(block, 'before-start')
       });
-      state.notificationLog[key] = nowIso();
+      state.notificationLog[beforeStartKey] = nowIso();
     }
 
     const startKey = `validate-start-${block.id}-${block.startAt}`;
@@ -1138,6 +1143,29 @@ async function runNotificationTick() {
     }
 
     const endDelta = minutesUntil(block.endAt);
+    const beforeEndKey = `before-end-${block.id}-${block.endAt}`;
+    if (endDelta <= state.profile.reminderMinutesBefore && endDelta >= state.profile.reminderMinutesBefore - 2 && !state.notificationLog[beforeEndKey]) {
+      await notifyAll(state, {
+        title: `Fin dans ${state.profile.reminderMinutesBefore} min`,
+        body: `${block.end} - ${block.title}`,
+        ...actionPayloadForBlock(block, 'before-end')
+      });
+      state.notificationLog[beforeEndKey] = nowIso();
+    }
+
+    const activeCheckSlot = Math.floor(Date.now() / (30 * 60 * 1000));
+    const activeCheckKey = `active-check-${block.id}-${activeCheckSlot}`;
+    if (startDelta < -4 && endDelta > 1 && !state.notificationLog[activeCheckKey]) {
+      await notifyAll(state, {
+        title: 'Toujours en cours ?',
+        body: block.status === 'doing'
+          ? `Tu es toujours sur: ${block.title} ?`
+          : `Est-ce que tu as commence: ${block.title} ?`,
+        ...actionPayloadForBlock(block, 'active-check')
+      });
+      state.notificationLog[activeCheckKey] = nowIso();
+    }
+
     const endKey = `validate-end-${block.id}-${block.endAt}`;
     if (endDelta <= 1 && endDelta >= -4 && !state.notificationLog[endKey]) {
       await notifyAll(state, {
@@ -1146,6 +1174,17 @@ async function runNotificationTick() {
         ...actionPayloadForBlock(block, 'end')
       });
       state.notificationLog[endKey] = nowIso();
+    }
+
+    const overdueCheckSlot = Math.floor(Date.now() / (30 * 60 * 1000));
+    const overdueCheckKey = `overdue-check-${block.id}-${overdueCheckSlot}`;
+    if (endDelta < -4 && !state.notificationLog[overdueCheckKey]) {
+      await notifyAll(state, {
+        title: 'Validation requise',
+        body: `As-tu termine: ${block.title} ?`,
+        ...actionPayloadForBlock(block, 'overdue-check')
+      });
+      state.notificationLog[overdueCheckKey] = nowIso();
     }
   }
 

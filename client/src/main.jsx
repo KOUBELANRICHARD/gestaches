@@ -1082,7 +1082,7 @@ function Block({ block }) {
     <article className={`time-block ${block.kind}`}>
       <time>{block.start} - {block.end}</time>
       <strong>{block.title}</strong>
-      <span>{block.type}</span>
+      <span>{block.type} / {formatMinutes(eventDurationMinutes(block))}</span>
     </article>
   );
 }
